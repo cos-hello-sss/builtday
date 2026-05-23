@@ -20,33 +20,24 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
-// Backblaze B2 Upload Helper (uses Cloudflare Worker presigned URL)
+// Backblaze B2 Upload Helper (proxied through Cloudflare Worker to avoid CORS)
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || '';
 
 const uploadToB2 = async (file, projectId) => {
   try {
-    // 1. Ask the worker for a presigned PUT URL
-    const sigRes = await fetch(`${WORKER_URL}/api/signed-url`, {
+    const res = await fetch(`${WORKER_URL}/api/upload`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectId,
-        filename: file.name,
-        contentType: file.type || 'application/octet-stream',
-      }),
-    });
-
-    if (!sigRes.ok) throw new Error('Could not get signed URL');
-    const { uploadUrl, publicUrl } = await sigRes.json();
-
-    // 2. PUT the file directly to B2 via the presigned URL
-    const putRes = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Name': file.name,
+        'X-Project-Id': projectId,
+        'X-Content-Type': file.type || 'application/octet-stream',
+      },
       body: file,
     });
 
-    if (!putRes.ok) throw new Error('B2 upload failed');
+    if (!res.ok) throw new Error('Upload failed');
+    const { publicUrl } = await res.json();
     return publicUrl;
   } catch (error) {
     console.error('Upload error:', error);
