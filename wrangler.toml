@@ -1,0 +1,6 @@
+name = "builtday-worker"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Secrets are set via GitHub Actions — do not put real values here

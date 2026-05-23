@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuth() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return request.auth.token.isAdmin == true;
+    }
+    
+    function isPublic(projectData) {
+      return projectData.visibility == 'public';
+    }
+    
+    match /users/{userId} {
+      allow read: if isAuth() && isOwner(userId);
+      allow read: if isAuth();
+      allow create: if isAuth() && isOwner(userId) && 
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.createdAt == request.time;
+      allow update: if isAuth() && isOwner(userId) &&
+        !('isAdmin' in request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    match /projects/{projectId} {
+      allow read: if isAuth() && (
+        isPublic(resource.data) || 
+        isOwner(resource.data.ownerId) ||
+        isAdmin()
+      );
+      allow create: if isAuth() && 
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.visibility in ['public', 'private'];
+      allow update: if isAuth() && isOwner(resource.data.ownerId);
+      allow delete: if isAuth() && (
+        isOwner(resource.data.ownerId) || isAdmin()
+      );
+      
+      match /logs/{logId} {
+        allow read: if isAuth() && isPublic(get(/databases/(default)/documents/projects/{projectId}).data);
+        allow read: if isAuth() && (
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId) ||
+          isAdmin()
+        );
+        allow create: if isAuth() && 
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId) &&
+          request.resource.data.createdAt == request.time;
+        allow update: if isAuth() && 
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId);
+        allow delete: if isAuth() && (
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId) ||
+          isAdmin()
+        );
+        
+        match /comments/{commentId} {
+          allow read: if isAuth() && isPublic(get(/databases/(default)/documents/projects/{projectId}).data);
+          allow create: if isAuth() &&
+            request.resource.data.authorId == request.auth.uid &&
+            request.resource.data.createdAt == request.time;
+          allow update: if isAuth() && isOwner(resource.data.authorId);
+          allow delete: if isAuth() && (
+            isOwner(resource.data.authorId) ||
+            isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId) ||
+            isAdmin()
+          );
+        }
+      }
+      
+      match /followers/{userId} {
+        allow read: if isAuth();
+        allow create: if isAuth() && request.resource.data.createdAt == request.time;
+        allow delete: if isAuth() && isOwner(userId);
+      }
+      
+      match /bans/{userId} {
+        allow read: if isAuth() && (
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId) ||
+          isAdmin()
+        );
+        allow create: if isAuth() && 
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId);
+        allow delete: if isAuth() && 
+          isOwner(get(/databases/(default)/documents/projects/{projectId}).data.ownerId);
+      }
+    }
+    
+    match /reports/{reportId} {
+      allow read: if isAuth() && (
+        isAdmin() || 
+        resource.data.reportedBy == request.auth.uid
+      );
+      allow create: if isAuth() &&
+        request.resource.data.reportedBy == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.createdAt == request.time;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
